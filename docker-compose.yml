@@ -1,0 +1,16 @@
+# Local run: docker compose up --build   ->  http://localhost:8000/docs
+services:
+  auth-service:
+    build:
+      context: .
+      target: runtime
+    image: ${REGISTRY:-local}/auth-service:${TAG:-latest}
+    ports: ["8000:8000"]
+    environment:
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY in .env (32+ random characters)}
+      CORS_ORIGINS: http://localhost:4200
+    volumes:
+      - auth-data:/app/data
+
+volumes:
+  auth-data:

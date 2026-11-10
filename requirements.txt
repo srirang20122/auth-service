@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pyjwt
+email-validator
+prometheus-fastapi-instrumentator
+opentelemetry-distro
+opentelemetry-exporter-otlp
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-sqlite3
