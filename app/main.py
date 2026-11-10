@@ -1,3 +1,4 @@
+import logging
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -13,6 +14,11 @@ from pydantic import BaseModel, EmailStr, Field
 from . import config
 from .db import db, init_db
 from .security import create_token, decode_token, hash_password, verify_password
+
+# App logs go to stdout (Azure log stream) and, when OTEL_LOGS_EXPORTER=otlp, to Loki.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+log = logging.getLogger("auth_service")
+log.setLevel(logging.INFO)
 
 init_db()
 
@@ -72,6 +78,7 @@ def current_claims(creds: HTTPAuthorizationCredentials | None = Depends(bearer))
     try:
         claims = decode_token(creds.credentials)
     except jwt.PyJWTError:
+        log.warning("rejected request: invalid or expired token")
         raise UNAUTHORIZED
     with db() as conn:
         revoked = conn.execute(
@@ -114,8 +121,10 @@ def register(body: RegisterIn):
             user_id = cur.lastrowid
     except sqlite3.IntegrityError:
         REGISTRATIONS.labels(result="duplicate").inc()
+        log.warning("register rejected: email already registered")
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
     REGISTRATIONS.labels(result="success").inc()
+    log.info("user registered user_id=%s", user_id)
     return UserOut(id=user_id, full_name=body.full_name.strip(), email=email, created_at=now)
 
 
@@ -127,8 +136,10 @@ def login(body: LoginIn):
         ).fetchone()
     if user is None or not verify_password(body.password, user["password_hash"]):
         LOGINS.labels(result="failed").inc()
+        log.warning("login failed")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     LOGINS.labels(result="success").inc()
+    log.info("login succeeded user_id=%s", user["id"])
     token, expires_in = create_token(user["id"])
     return TokenOut(access_token=token, expires_in=expires_in)
 
@@ -149,6 +160,7 @@ def logout(claims: dict = Depends(current_claims)):
         )
         conn.execute("DELETE FROM revoked_tokens WHERE expires_at < ?", (now,))
     LOGOUTS.inc()
+    log.info("logout user_id=%s", claims["sub"])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
